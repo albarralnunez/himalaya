@@ -37,6 +37,15 @@ fn read_message_with_security(
     println!("From: {}", message.sender);
     println!("Message ID: {}\n", message.id);
 
+    // Check if sender is allowlisted
+    if scanner.is_allowlisted(&message.sender) {
+        printer.print_message("✅ Sender is allowlisted - skipping security scan");
+        printer.print_message("--- Message Body ---");
+        printer.print_message(&message.body);
+        printer.print_message("--- End of Message ---");
+        return Ok(());
+    }
+
     // Scan the message for security threats
     let scan_result = scanner.scan_text(&message.body, &message.id)?;
 

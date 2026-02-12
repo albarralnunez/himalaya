@@ -38,6 +38,14 @@ impl Scanner {
         }
     }
 
+    /// Check if a sender is on the allowlist
+    pub fn is_allowlisted(&self, sender: &str) -> bool {
+        self.config.allowlisted_senders.iter().any(|allowed| {
+            // Support both exact match and domain match
+            sender == allowed || sender.ends_with(&format!("@{}", allowed))
+        })
+    }
+
     /// Scan text content for threats and PII
     pub fn scan_text(&self, text: &str, message_id: &str) -> SecurityResult<ScanResult> {
         let mut result = ScanResult::new(message_id);
@@ -240,6 +248,31 @@ mod tests {
         // Should error due to high risk
         let result = scanner.process_text(text, &scan_result);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_allowlist_exact_match() {
+        let config = SecurityConfig {
+            allowlisted_senders: vec!["noreply@github.com".to_string()],
+            ..Default::default()
+        };
+        let scanner = Scanner::from_config(&config);
+
+        assert!(scanner.is_allowlisted("noreply@github.com"));
+        assert!(!scanner.is_allowlisted("other@example.com"));
+    }
+
+    #[test]
+    fn test_allowlist_domain_match() {
+        let config = SecurityConfig {
+            allowlisted_senders: vec!["github.com".to_string()],
+            ..Default::default()
+        };
+        let scanner = Scanner::from_config(&config);
+
+        assert!(scanner.is_allowlisted("noreply@github.com"));
+        assert!(scanner.is_allowlisted("user@github.com"));
+        assert!(!scanner.is_allowlisted("user@otherdomain.com"));
     }
 
     #[test]
