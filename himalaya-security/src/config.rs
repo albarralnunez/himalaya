@@ -17,10 +17,6 @@ pub struct SecurityConfig {
     #[serde(default)]
     pub scanners: ScannerConfig,
 
-    /// Allowlisted sender addresses (skip scanning)
-    #[serde(default)]
-    pub allowlisted_senders: Vec<String>,
-
     /// Custom rules file path (optional)
     #[serde(default)]
     pub rules_path: Option<PathBuf>,
@@ -40,7 +36,6 @@ impl Default for SecurityConfig {
             on_threat: default_threat_action(),
             pii_handling: default_pii_action(),
             scanners: ScannerConfig::default(),
-            allowlisted_senders: Vec::new(),
             rules_path: None,
             block_threshold: default_block_threshold(),
             warn_threshold: default_warn_threshold(),
@@ -78,19 +73,6 @@ impl SecurityConfig {
 
         toml::from_str(&contents).map_err(|e| {
             crate::error::SecurityError::ConfigError(format!("Failed to parse TOML: {}", e))
-        })
-    }
-
-    /// Check if a sender is allowlisted
-    ///
-    /// Supports both exact match (sender == "user@example.com")
-    /// and domain match (sender ends with "@example.com" if allowlist has "example.com")
-    pub fn is_sender_allowlisted(&self, sender: &str) -> bool {
-        self.allowlisted_senders.iter().any(|allowed| {
-            // Exact match
-            sender == allowed ||
-            // Domain match: if allowed doesn't contain @, match as domain suffix
-            (!allowed.contains('@') && sender.ends_with(&format!("@{}", allowed)))
         })
     }
 }
@@ -187,7 +169,6 @@ mod tests {
             on-threat = "block"
             pii-handling = "mask"
             block-threshold = 0.9
-            allowlisted-senders = ["trusted@example.com"]
 
             [scanners]
             prompt-injection = true
@@ -199,20 +180,5 @@ mod tests {
         assert_eq!(config.pii_handling, PiiAction::Mask);
         assert_eq!(config.block_threshold, 0.9);
         assert!(!config.scanners.pii_detection);
-    }
-
-    #[test]
-    fn test_allowlist_matching() {
-        let config = SecurityConfig {
-            allowlisted_senders: vec!["trusted.com".to_string(), "noreply@github.com".to_string()],
-            ..Default::default()
-        };
-
-        // Domain match
-        assert!(config.is_sender_allowlisted("alice@trusted.com"));
-        // Exact match
-        assert!(config.is_sender_allowlisted("noreply@github.com"));
-        // No match
-        assert!(!config.is_sender_allowlisted("attacker@evil.com"));
     }
 }
