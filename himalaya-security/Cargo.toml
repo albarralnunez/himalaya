@@ -37,6 +37,7 @@ tracing = "0.1"
 [dev-dependencies]
 tokio = { version = "1.23", features = ["full", "test-util"] }
 color-eyre = "0.6"
+tempfile = "3.8"
 
 [features]
 default = ["all-scanners"]

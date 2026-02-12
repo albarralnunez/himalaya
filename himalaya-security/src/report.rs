@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Result of scanning a message for security threats
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +22,10 @@ pub struct ScanResult {
     /// Timestamp of the scan
     #[serde(default = "chrono_now")]
     pub scanned_at: String,
+
+    /// Duration of the scan in microseconds
+    #[serde(default)]
+    pub scan_duration_us: u64,
 }
 
 impl ScanResult {
@@ -32,7 +37,13 @@ impl ScanResult {
             risk_score: 0.0,
             action_taken: ActionTaken::Allowed,
             scanned_at: chrono_now(),
+            scan_duration_us: 0,
         }
+    }
+
+    /// Set scan duration
+    pub fn set_duration(&mut self, duration: Duration) {
+        self.scan_duration_us = duration.as_micros() as u64;
     }
 
     /// Calculate risk score based on threats

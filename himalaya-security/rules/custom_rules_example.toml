@@ -1,0 +1,57 @@
+# Custom Security Rules Example
+#
+# This file shows how to add custom keywords, patterns, and PII detection
+# to the himalaya-security scanner.
+#
+# Usage:
+#   1. Copy this file to your preferred location
+#   2. Customize the rules below
+#   3. Reference it in your SecurityConfig:
+#      rules_path = "/path/to/custom_rules.toml"
+
+# Additional keywords for prompt injection detection
+# These are added to the default keyword list
+additional-keywords = [
+    "custom attack phrase",
+    "organization-specific trigger",
+    "internal command prefix",
+]
+
+# Additional regex patterns for structural threat detection
+# Use standard Rust regex syntax
+additional-patterns = [
+    # Detect company-specific command injection attempts
+    "(?i)admin\\s*console\\s*access",
+
+    # Detect attempts to reference internal systems
+    "(?i)(staging|qa|dev)\\s*environment",
+]
+
+# Additional PII patterns to detect
+# Useful for organization-specific identifiers
+[[additional-pii-patterns]]
+name = "employee-id"
+pattern = "EMP-\\d{6}"
+redaction-text = "[EMPLOYEE_ID]"
+
+[[additional-pii-patterns]]
+name = "customer-id"
+pattern = "CUST-[A-Z]{2}-\\d{8}"
+redaction-text = "[CUSTOMER_ID]"
+
+[[additional-pii-patterns]]
+name = "internal-ticket"
+pattern = "TICKET-\\d{4,8}"
+redaction-text = "[TICKET_ID]"
+
+# Override default confidence thresholds
+# Optional - omit to use defaults
+[confidence-overrides]
+# Minimum confidence to report a threat (0.0-1.0)
+min-confidence = 0.6
+
+# Base confidence for keyword matches
+base-keyword-confidence = 0.7
+
+# Boost applied to suspicious keywords
+suspicious-keyword-boost = 0.2

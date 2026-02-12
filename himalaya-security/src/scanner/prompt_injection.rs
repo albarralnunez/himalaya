@@ -37,7 +37,16 @@ impl PromptInjectionDetector {
     }
 
     pub fn with_min_confidence(min_confidence: f32) -> Self {
-        let keywords = vec![
+        Self::with_custom_rules(min_confidence, &[], &[])
+    }
+
+    /// Create detector with custom additional keywords and patterns
+    pub fn with_custom_rules(
+        min_confidence: f32,
+        additional_keywords: &[String],
+        additional_patterns: &[String],
+    ) -> Self {
+        let mut keywords = vec![
             // Direct instruction override
             "ignore previous instructions",
             "ignore all previous",
@@ -87,7 +96,10 @@ impl PromptInjectionDetector {
             "decode and execute",
         ];
 
-        let patterns = vec![
+        // Add custom keywords
+        keywords.extend(additional_keywords.iter().map(|s| s.as_str()));
+
+        let mut patterns = vec![
             // Markdown/XML injection
             r"```\s*system\b",
             r"<\|im_start\|>\s*system",
@@ -112,6 +124,9 @@ impl PromptInjectionDetector {
             // Multi-language instruction keywords
             r"(?i)(instrucciones|instruções|指示|指令|Anweisungen)",
         ];
+
+        // Add custom patterns
+        patterns.extend(additional_patterns.iter().map(|s| s.as_str()));
 
         let keyword_matcher = AhoCorasick::new(&keywords)
             .expect("Failed to build keyword matcher");

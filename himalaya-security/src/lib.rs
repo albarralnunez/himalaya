@@ -38,6 +38,7 @@ pub mod config;
 pub mod error;
 pub mod middleware;
 pub mod report;
+pub mod rules;
 pub mod scanner;
 
 // Re-export main types for convenience
@@ -47,6 +48,7 @@ pub use middleware::SecurityMiddleware;
 pub use report::{
     ActionTaken, ContentLocation, PiiFinding, PiiType, ScanResult, Threat, ThreatType,
 };
+pub use rules::CustomRules;
 pub use scanner::{PiiRedactor, PromptInjectionDetector, Scanner};
 
 /// Library version

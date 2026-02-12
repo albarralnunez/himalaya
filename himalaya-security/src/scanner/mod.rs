@@ -5,6 +5,7 @@ use crate::{
     config::{PiiAction, SecurityConfig, ThreatAction},
     error::{SecurityError, SecurityResult},
     report::{ActionTaken, ScanResult},
+    rules::CustomRules,
 };
 
 pub use pii_redactor::PiiRedactor;
@@ -19,8 +20,36 @@ pub struct Scanner {
 
 impl Scanner {
     pub fn from_config(config: &SecurityConfig) -> Self {
+        Self::from_config_with_rules(config, None)
+    }
+
+    /// Create scanner with custom rules loaded from file
+    pub fn from_config_with_rules(config: &SecurityConfig, custom_rules: Option<CustomRules>) -> Self {
+        // Load custom rules from file if path is specified and no rules provided
+        let rules = custom_rules.or_else(|| {
+            config.rules_path.as_ref().and_then(|path| {
+                CustomRules::from_file(path)
+                    .map_err(|e| {
+                        tracing::warn!("Failed to load custom rules from {:?}: {}", path, e);
+                        e
+                    })
+                    .ok()
+            })
+        }).unwrap_or_default();
+
         let prompt_injection_detector = if config.scanners.prompt_injection {
-            Some(PromptInjectionDetector::new())
+            let mut min_conf = 0.5;
+            if let Some(ref overrides) = rules.confidence_overrides {
+                if let Some(conf) = overrides.min_confidence {
+                    min_conf = conf;
+                }
+            }
+
+            Some(PromptInjectionDetector::with_custom_rules(
+                min_conf,
+                &rules.additional_keywords,
+                &rules.additional_patterns,
+            ))
         } else {
             None
         };
@@ -52,6 +81,9 @@ impl Scanner {
 
     /// Scan text content for threats and PII
     pub fn scan_text(&self, text: &str, message_id: &str) -> SecurityResult<ScanResult> {
+        use std::time::Instant;
+
+        let start = Instant::now();
         let mut result = ScanResult::new(message_id);
 
         // Phase 1: Prompt injection detection
@@ -69,6 +101,9 @@ impl Scanner {
 
         // Phase 4: Determine action
         result.action_taken = self.determine_action(&result);
+
+        // Record scan duration
+        result.set_duration(start.elapsed());
 
         Ok(result)
     }
