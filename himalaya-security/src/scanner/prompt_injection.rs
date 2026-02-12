@@ -410,4 +410,69 @@ mod tests {
         let has_data_exfil = threats.iter().any(|t| matches!(t.threat_type, ThreatType::DataExfiltration));
         assert!(has_data_exfil || !threats.is_empty(), "Should detect threat");
     }
+
+    // Property-based tests
+    #[cfg(test)]
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn test_scanner_never_panics(text in "\\PC{0,1000}") {
+                let detector = PromptInjectionDetector::new();
+                let _ = detector.scan(&text);
+                // Should never panic regardless of input
+            }
+
+            #[test]
+            fn test_confidence_always_in_range(text in "\\PC{0,500}") {
+                let detector = PromptInjectionDetector::new();
+                let threats = detector.scan(&text);
+                for threat in threats {
+                    prop_assert!(threat.confidence >= 0.0 && threat.confidence <= 1.0,
+                        "Confidence {} out of range", threat.confidence);
+                }
+            }
+
+            #[test]
+            fn test_empty_input_no_threats(empty in prop::string::string_regex("\\s*").unwrap()) {
+                let detector = PromptInjectionDetector::new();
+                let threats = detector.scan(&empty);
+                prop_assert!(threats.is_empty(), "Empty/whitespace input should have no threats");
+            }
+
+            #[test]
+            fn test_known_threats_always_detected(
+                prefix in "[\\w\\s]{0,20}",
+                suffix in "[\\w\\s]{0,20}"
+            ) {
+                let detector = PromptInjectionDetector::new();
+                let threat_text = "ignore previous instructions";
+                let full_text = format!("{}{}{}", prefix, threat_text, suffix);
+                let threats = detector.scan(&full_text);
+                prop_assert!(!threats.is_empty(), "Should detect known threat pattern");
+            }
+
+            #[test]
+            fn test_offset_within_text_bounds(text in "\\PC{10,500}") {
+                let detector = PromptInjectionDetector::new();
+                let threats = detector.scan(&text);
+                for threat in threats {
+                    let offset = threat.location.offset();
+                    prop_assert!(offset <= text.len(),
+                        "Offset {} exceeds text length {}", offset, text.len());
+                }
+            }
+
+            #[test]
+            fn test_duplicate_text_gives_consistent_results(text in "\\PC{10,200}") {
+                let detector = PromptInjectionDetector::new();
+                let threats1 = detector.scan(&text);
+                let threats2 = detector.scan(&text);
+                prop_assert_eq!(threats1.len(), threats2.len(),
+                    "Same input should produce same number of threats");
+            }
+        }
+    }
 }

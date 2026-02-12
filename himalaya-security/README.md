@@ -27,10 +27,10 @@ A Rust library providing prompt injection detection and PII redaction for email 
 
 - **Configuration**:
   - TOML-based configuration
-  - Per-sender allowlists
   - Adjustable risk thresholds
   - Individual scanner enable/disable
   - Callback hooks for custom threat handling
+  - Custom detection rules via TOML files
 
 ## Quick Start
 
@@ -80,8 +80,8 @@ pii-handling = "redact"  # "redact" | "mask" | "log-only" | "disabled"
 block-threshold = 0.8
 warn-threshold = 0.5
 
-# Skip scanning for trusted senders
-allowlisted-senders = ["noreply@github.com", "support@company.com"]
+# Optional: Load custom detection rules
+# rules-path = "~/.config/himalaya/custom_rules.toml"
 
 # Enable/disable specific scanners
 [scanners]

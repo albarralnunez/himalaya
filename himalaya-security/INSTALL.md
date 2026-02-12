@@ -142,7 +142,8 @@ Edit `~/.config/himalaya/config.toml`:
 on-threat = "annotate"
 pii-handling = "redact"
 block-threshold = 0.8
-allowlisted-senders = ["noreply@github.com"]
+# Optional: Load custom detection rules
+# rules-path = "~/.config/himalaya/custom_rules.toml"
 
 [security.scanners]
 prompt-injection = true

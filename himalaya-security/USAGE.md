@@ -79,7 +79,6 @@ Add security config to your Himalaya config file (`~/.config/himalaya/config.tom
 on-threat = "annotate"
 pii-handling = "redact"
 block-threshold = 0.8
-allowlisted-senders = ["noreply@github.com"]
 
 [security.scanners]
 prompt-injection = true
@@ -179,9 +178,6 @@ pub struct SecurityConfig {
     /// Which scanners to enable
     pub scanners: ScannerConfig,
 
-    /// Senders to skip scanning for
-    pub allowlisted_senders: Vec<String>,
-
     /// Path to custom rules file (optional)
     pub rules_path: Option<PathBuf>,
 
@@ -270,9 +266,6 @@ impl Scanner {
     /// Process text based on scan results and config
     pub fn process_text(&self, text: &str, result: &ScanResult)
         -> SecurityResult<String>;
-
-    /// Check if sender is allowlisted
-    pub fn is_allowlisted(&self, sender: &str) -> bool;
 }
 ```
 
@@ -389,16 +382,13 @@ My SSN is [SSN_REDACTED] and card is ****-****-****-1111
 ```rust
 use himalaya_security::{Scanner, SecurityConfig};
 
-let config = SecurityConfig {
-    allowlisted_senders: vec!["noreply@github.com".to_string()],
-    ..Default::default()
-};
-let scanner = Scanner::from_config(&config);
+// Load custom detection rules
+let rules = CustomRules::from_file("custom_rules.toml")?;
+let scanner = Scanner::from_config_with_rules(&config, Some(rules));
 
-// This will skip scanning
-if scanner.is_allowlisted("noreply@github.com") {
-    println!("Sender is trusted, skipping scan");
-}
+// Scan with custom rules
+let result = scanner.scan_text(email_body, "msg-id")?;
+println!("Scan duration: {}μs", result.scan_duration_us);
 ```
 
 ### Example 4: Custom Risk Threshold
@@ -525,17 +515,6 @@ pii-handling = "redact"
 # Wrong ❌
 on_threat = "annotate"
 pii_handling = "redact"
-```
-
-### Allowlist not working
-
-Check exact email match:
-
-```rust
-// Must match exactly
-allowlisted_senders = ["noreply@github.com"]
-
-// Won't match "user@github.com"
 ```
 
 ## Next Steps

@@ -168,21 +168,13 @@ impl<T> SecurityMiddleware<T> {
         let body = msg.get_body_text()?;
         let sender = msg.get_sender();
 
-        // 2. Check allowlist
-        if let Some(ref sender_addr) = sender {
-            if self.scanner.is_allowlisted(sender_addr) {
-                debug!("Sender {} allowlisted, skipping scan", sender_addr);
-                return Ok((msg.clone(), ScanResult::default()));
-            }
-        }
-
-        // 3. Scan content
+        // 2. Scan content
         let scan_result = self.scanner.scan_text(&body, msg.id())?;
 
-        // 4. Process based on result
+        // 3. Process based on result
         let safe_body = self.scanner.process_text(&body, &scan_result)?;
 
-        // 5. Create modified message
+        // 4. Create modified message
         let mut safe_msg = msg.clone();
         safe_msg.set_body(&safe_body)?;
 

@@ -449,4 +449,101 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj
         // Invalid IP (octets > 255), should not be redacted
         assert!(result.contains("999.888.777.666"));
     }
+
+    // Property-based tests
+    #[cfg(test)]
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn test_redactor_never_panics(text in "\\PC{0,1000}") {
+                let redactor = PiiRedactor::new();
+                let _ = redactor.scan(&text);
+                let _ = redactor.redact(&text, PiiAction::Redact);
+                let _ = redactor.redact(&text, PiiAction::Mask);
+                // Should never panic regardless of input
+            }
+
+            #[test]
+            fn test_redaction_preserves_length_bounds(text in "\\PC{0,500}") {
+                let redactor = PiiRedactor::new();
+                let redacted = redactor.redact(&text, PiiAction::Redact);
+                // Redacted text might be shorter (redacted) or longer (placeholders)
+                // but should be reasonable (not 100x original)
+                prop_assert!(redacted.len() < text.len() * 10,
+                    "Redacted length {} unreasonable for input length {}",
+                    redacted.len(), text.len());
+            }
+
+            #[test]
+            fn test_clean_text_unchanged(
+                text in "[a-zA-Z ]{10,100}"
+            ) {
+                let redactor = PiiRedactor::new();
+                let result = redactor.redact(&text, PiiAction::Redact);
+                // Clean alphabetic text should pass through unchanged
+                prop_assert_eq!(&result, &text, "Clean text should not be modified");
+            }
+
+            #[test]
+            fn test_idempotent_redaction(text in "\\PC{10,200}") {
+                let redactor = PiiRedactor::new();
+                let redacted1 = redactor.redact(&text, PiiAction::Redact);
+                let redacted2 = redactor.redact(&redacted1, PiiAction::Redact);
+                // Redacting already redacted text should not change it
+                prop_assert_eq!(&redacted1, &redacted2,
+                    "Redaction should be idempotent");
+            }
+
+            #[test]
+            fn test_scan_findings_offset_in_bounds(text in "\\PC{10,500}") {
+                let redactor = PiiRedactor::new();
+                let findings = redactor.scan(&text);
+                for finding in findings {
+                    let offset = finding.location.offset();
+                    prop_assert!(offset <= text.len(),
+                        "PII offset {} exceeds text length {}", offset, text.len());
+                }
+            }
+
+            #[test]
+            fn test_known_pii_always_detected(
+                prefix in "[a-zA-Z ]{0,20}",
+                suffix in "[a-zA-Z ]{0,20}"
+            ) {
+                let redactor = PiiRedactor::new();
+                let pii = "test@example.com";
+                let full_text = format!("{}{}{}", prefix, pii, suffix);
+                let findings = redactor.scan(&full_text);
+                prop_assert!(!findings.is_empty(), "Should detect email PII");
+            }
+
+            #[test]
+            fn test_luhn_check_accepts_valid_cards(
+                mut digits in prop::collection::vec(0u32..10, 14..16)
+            ) {
+                // Generate valid Luhn checksum
+                let mut sum = 0;
+                let mut double = false;
+                for &digit in digits.iter().rev() {
+                    let mut d = digit;
+                    if double {
+                        d *= 2;
+                        if d > 9 { d -= 9; }
+                    }
+                    sum += d;
+                    double = !double;
+                }
+
+                // Adjust last digit to make checksum valid
+                let checksum_digit = (10 - (sum % 10)) % 10;
+                digits.push(checksum_digit);
+
+                let card_str: String = digits.iter().map(|d| d.to_string()).collect();
+                prop_assert!(luhn_check(&card_str), "Generated card should pass Luhn");
+            }
+        }
+    }
 }
