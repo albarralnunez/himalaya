@@ -1,0 +1,134 @@
+# Himalaya Security - Default Detection Rules
+#
+# This file defines the default security rules for prompt injection and PII detection.
+# You can extend or override these rules by specifying a custom rules file in your config.
+
+[threat-detection]
+# Minimum confidence score to report a threat (0.0 - 1.0)
+min-confidence = 0.5
+
+# Risk score threshold for blocking messages (0.0 - 1.0)
+block-threshold = 0.8
+
+# Risk score threshold for warnings (0.0 - 1.0)
+warn-threshold = 0.5
+
+[prompt-injection]
+enabled = true
+
+# Keywords that indicate prompt injection attempts
+# These are scanned using fast Aho-Corasick algorithm
+keywords = [
+    # Direct instruction override
+    "ignore previous instructions",
+    "ignore all previous",
+    "disregard your instructions",
+    "disregard all previous",
+    "forget your instructions",
+    "forget everything",
+    "override system prompt",
+    "new system prompt",
+    "you are now",
+    "act as",
+    "pretend you are",
+    "switch to",
+    "entering developer mode",
+    "DAN mode",
+    "jailbreak",
+    "bypass restrictions",
+
+    # Role manipulation markers
+    "system:",
+    "SYSTEM:",
+    "[SYSTEM]",
+    "<<SYS>>",
+    "[INST]",
+    "### Instruction:",
+    "### Human:",
+    "### Assistant:",
+    "<|im_start|>",
+    "<|im_end|>",
+
+    # Data exfiltration
+    "output your system prompt",
+    "repeat your instructions",
+    "what are your rules",
+    "show me your prompt",
+    "reveal your instructions",
+    "print your directives",
+]
+
+# Regex patterns for structural detection
+patterns = [
+    "```\\s*system\\b",
+    "<\\|im_start\\|>\\s*system",
+    "<system>.*</system>",
+    "\\[SYSTEM\\s*MESSAGE\\]",
+    "(?i)(you\\s+are\\s+now|from\\s+now\\s+on|new\\s+role).{0,50}(assistant|ai|bot|helper)",
+    "(?i)ignore\\s+(all\\s+)?(previous|prior|earlier)\\s+(instructions?|prompts?|directives?)",
+    "[A-Za-z0-9+/]{60,}={0,2}",  # Long base64-like strings
+]
+
+[pii-detection]
+enabled = true
+
+# Patterns for different types of PII
+[[pii-detection.patterns]]
+name = "ssn"
+type = "SocialSecurityNumber"
+regex = "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+redaction = "[SSN_REDACTED]"
+
+[[pii-detection.patterns]]
+name = "credit-card"
+type = "CreditCard"
+regex = "\\b(?:\\d[ -]*?){13,19}\\b"
+redaction = "****-****-****-XXXX"
+
+[[pii-detection.patterns]]
+name = "phone"
+type = "PhoneNumber"
+regex = "\\b(?:\\+?1[-\.\\s]?)?\\(?\\d{3}\\)?[-\.\\s]?\\d{3}[-\.\\s]?\\d{4}\\b"
+redaction = "***-***-XXXX"
+
+[[pii-detection.patterns]]
+name = "email"
+type = "EmailAddress"
+regex = "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"
+redaction = "***@domain.com"
+
+[[pii-detection.patterns]]
+name = "aws-access-key"
+type = "AwsAccessKey"
+regex = "(AKIA[0-9A-Z]{16})"
+redaction = "[AWS_ACCESS_KEY_REDACTED]"
+
+[[pii-detection.patterns]]
+name = "aws-secret-key"
+type = "ApiKey"
+regex = "(?i)(aws_secret_access_key|aws.?secret).{0,10}[:=]\\s*([A-Za-z0-9/+=]{40})"
+redaction = "[AWS_SECRET_KEY_REDACTED]"
+
+[[pii-detection.patterns]]
+name = "github-token"
+type = "ApiKey"
+regex = "(gh[ps]_[a-zA-Z0-9]{36,})"
+redaction = "[GITHUB_TOKEN_REDACTED]"
+
+[[pii-detection.patterns]]
+name = "generic-api-key"
+type = "ApiKey"
+regex = "(?i)(api[_-]?key|token|secret|password)\\s*[:=]\\s*([a-zA-Z0-9_\\-.]{20,})"
+redaction = "[API_KEY_REDACTED]"
+
+[[pii-detection.patterns]]
+name = "private-key"
+type = "PrivateKey"
+regex = "-----BEGIN\\s+(RSA\\s+)?PRIVATE\\s+KEY-----[\\s\\S]*?-----END\\s+(RSA\\s+)?PRIVATE\\s+KEY-----"
+redaction = "[PRIVATE_KEY_REDACTED]"
+
+[[pii-detection.patterns]]
+name = "ipv4"
+type = "IpAddress"
+regex = "(?:\\d{1,3}\\.){3}\\d{1,3}"
+redaction = "XX.XX.***.***.***"

@@ -1,0 +1,49 @@
+[package]
+name = "himalaya-security"
+version = "0.1.0"
+edition = "2021"
+authors = ["Himalaya Security Contributors"]
+description = "Security middleware for Himalaya email client - prompt injection and PII detection"
+license = "MIT"
+repository = "https://github.com/pimalaya/himalaya"
+keywords = ["email", "security", "prompt-injection", "pii", "middleware"]
+categories = ["email", "security"]
+
+[dependencies]
+# Core email library from pimalaya ecosystem
+# Note: Temporarily disabled until we integrate with the actual email-lib traits
+# email-lib = { version = "0.26", default-features = false, features = ["derive"] }
+
+# Async support
+async-trait = "0.1"
+tokio = { version = "1.23", default-features = false }
+
+# Pattern matching and text processing
+regex = "1.10"
+aho-corasick = "1.1"
+
+# Serialization for config
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Error handling and logging
+thiserror = "1"
+tracing = "0.1"
+
+# Email parsing (for MIME handling)
+# Note: Temporarily disabled - will add back when implementing MIME support
+# mail-parser = "0.9"
+
+[dev-dependencies]
+tokio = { version = "1.23", features = ["full", "test-util"] }
+color-eyre = "0.6"
+
+[features]
+default = ["all-scanners"]
+all-scanners = ["prompt-injection", "pii-detection", "url-analysis"]
+prompt-injection = []
+pii-detection = []
+url-analysis = []
+
+# For future ML-based detection
+# ml-detection = ["ort"]
