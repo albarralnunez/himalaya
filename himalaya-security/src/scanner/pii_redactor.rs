@@ -10,6 +10,37 @@ pub struct PiiRedactor {
     patterns: Vec<PiiPattern>,
 }
 
+/// Validate credit card number using Luhn algorithm (mod 10 check)
+fn luhn_check(card_number: &str) -> bool {
+    let digits: Vec<u32> = card_number
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .filter_map(|c| c.to_digit(10))
+        .collect();
+
+    if digits.len() < 13 || digits.len() > 19 {
+        return false;
+    }
+
+    let mut sum = 0;
+    let mut double = false;
+
+    // Process digits from right to left
+    for &digit in digits.iter().rev() {
+        let mut d = digit;
+        if double {
+            d *= 2;
+            if d > 9 {
+                d -= 9;
+            }
+        }
+        sum += d;
+        double = !double;
+    }
+
+    sum % 10 == 0
+}
+
 struct PiiPattern {
     pii_type: PiiType,
     regex: Regex,
@@ -25,21 +56,25 @@ impl PiiRedactor {
                 regex: Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").unwrap(),
                 mask_fn: Box::new(|_| "[SSN_REDACTED]".to_string()),
             },
-            // Credit card numbers (various formats)
+            // Credit card numbers (various formats, with Luhn validation)
             PiiPattern {
                 pii_type: PiiType::CreditCard,
                 regex: Regex::new(r"\b(?:\d[ -]*?){13,19}\b").unwrap(),
                 mask_fn: Box::new(|s| {
                     let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
                     if digits.len() >= 13 && digits.len() <= 19 {
-                        // Only mask if it looks like a real card number
-                        if digits.len() >= 4 {
-                            format!("****-****-****-{}", &digits[digits.len()-4..])
+                        // Validate using Luhn algorithm to reduce false positives
+                        if luhn_check(&digits) {
+                            if digits.len() >= 4 {
+                                format!("****-****-****-{}", &digits[digits.len()-4..])
+                            } else {
+                                "[CARD_REDACTED]".to_string()
+                            }
                         } else {
-                            "[CARD_REDACTED]".to_string()
+                            s.to_string() // Failed Luhn check, not a valid card number
                         }
                     } else {
-                        s.to_string() // Not a card number, don't redact
+                        s.to_string() // Wrong length, not a card number
                     }
                 }),
             },
@@ -108,14 +143,34 @@ impl PiiRedactor {
                 ).unwrap(),
                 mask_fn: Box::new(|_| "[PRIVATE_KEY_REDACTED]".to_string()),
             },
-            // IPv4 addresses
+            // IPv4 addresses (with validation to exclude version numbers)
             PiiPattern {
                 pii_type: PiiType::IpAddress,
-                regex: Regex::new(r"(?:\d{1,3}\.){3}\d{1,3}").unwrap(),
+                regex: Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
                 mask_fn: Box::new(|s| {
                     let parts: Vec<&str> = s.split('.').collect();
                     if parts.len() == 4 {
-                        format!("{}.{}.***.***.***", parts[0], parts[1])
+                        // Validate each octet is 0-255
+                        let valid_ip = parts.iter().all(|&p| {
+                            p.parse::<u8>().is_ok()
+                        });
+
+                        if valid_ip {
+                            // Check if it looks like a version number (e.g., "1.2.3.4" in typical version context)
+                            let all_small = parts.iter().all(|&p| {
+                                p.parse::<u8>().map(|n| n < 20).unwrap_or(false)
+                            });
+
+                            if all_small && parts[0].parse::<u8>().unwrap() < 10 {
+                                // Likely a version number like 1.2.3.4, don't redact
+                                s.to_string()
+                            } else {
+                                // Looks like a real IP address
+                                format!("{}.{}.***.***.***", parts[0], parts[1])
+                            }
+                        } else {
+                            s.to_string() // Invalid IP, don't redact
+                        }
                     } else {
                         "[IP_REDACTED]".to_string()
                     }
@@ -337,5 +392,61 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj
         let findings = redactor.scan(text);
 
         assert!(findings.len() >= 2); // At least SSN and email
+    }
+
+    #[test]
+    fn test_luhn_validation_valid_card() {
+        // Valid test credit card (passes Luhn check)
+        assert!(luhn_check("4111111111111111")); // Visa test card
+        assert!(luhn_check("5555555555554444")); // Mastercard test card
+    }
+
+    #[test]
+    fn test_luhn_validation_invalid_card() {
+        // Invalid card number (fails Luhn check)
+        assert!(!luhn_check("1234567890123456"));
+        assert!(!luhn_check("1111111111111111"));
+    }
+
+    #[test]
+    fn test_credit_card_false_positive_prevention() {
+        let redactor = PiiRedactor::new();
+        // Order number that looks like card but fails Luhn
+        let text = "Order #1234-5678-9012-3456 has been shipped";
+        let result = redactor.redact(text, PiiAction::Redact);
+
+        // Should NOT be redacted because it fails Luhn check
+        assert!(result.contains("1234-5678-9012-3456"));
+    }
+
+    #[test]
+    fn test_version_number_not_redacted_as_ip() {
+        let redactor = PiiRedactor::new();
+        let text = "Software version 1.2.3.4 released";
+        let result = redactor.redact(text, PiiAction::Redact);
+
+        // Should NOT be redacted as IP address
+        assert!(result.contains("1.2.3.4"));
+    }
+
+    #[test]
+    fn test_actual_ip_address_redacted() {
+        let redactor = PiiRedactor::new();
+        let text = "Server IP: 192.168.1.100";
+        let result = redactor.redact(text, PiiAction::Redact);
+
+        // Should be redacted
+        assert!(result.contains("192.168.***.***.***"));
+        assert!(!result.contains("192.168.1.100"));
+    }
+
+    #[test]
+    fn test_invalid_ip_not_redacted() {
+        let redactor = PiiRedactor::new();
+        let text = "Value: 999.888.777.666";
+        let result = redactor.redact(text, PiiAction::Redact);
+
+        // Invalid IP (octets > 255), should not be redacted
+        assert!(result.contains("999.888.777.666"));
     }
 }

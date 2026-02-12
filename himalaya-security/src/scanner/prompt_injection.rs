@@ -99,8 +99,8 @@ impl PromptInjectionDetector {
             r"(?i)(you\s+are\s+now|from\s+now\s+on|new\s+role).{0,50}(assistant|ai|bot|helper)",
             r"(?i)ignore\s+(all\s+)?(previous|prior|earlier)\s+(instructions?|prompts?|directives?)",
 
-            // Encoded payloads (long base64-like strings)
-            r"[A-Za-z0-9+/]{60,}={0,2}",
+            // Encoded payloads (base64 with context markers)
+            r"(?i)(base64|data:.*base64|btoa|atob)\s*[:\(]\s*[A-Za-z0-9+/]{40,}={0,2}",
 
             // Invisible Unicode tricks (zero-width characters)
             r"[\u{200B}-\u{200F}\u{2028}-\u{202F}\u{FEFF}]{3,}",
@@ -207,7 +207,16 @@ impl PromptInjectionDetector {
         let context_end = (offset + keyword.len() + CONTEXT_SIZE).min(text.len());
         let context = &text[context_start..context_end];
 
-        if context.contains("please") || context.contains("now") {
+        // Check for imperative verbs that indicate command structure
+        let imperative_verbs = [
+            "ignore", "disregard", "forget", "override", "bypass",
+            "reveal", "show", "tell", "output", "print", "execute"
+        ];
+
+        let has_imperative = imperative_verbs.iter().any(|&verb| context.to_lowercase().contains(verb));
+
+        // Only boost if "please" or "now" appears with imperative verbs
+        if (context.contains("please") || context.contains("now")) && has_imperative {
             confidence += CONTEXT_KEYWORD_BOOST;
         }
 
