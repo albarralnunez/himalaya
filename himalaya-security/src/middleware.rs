@@ -7,6 +7,9 @@ use crate::{
     scanner::Scanner,
 };
 
+/// Callback function type for scan completion notifications
+pub type ScanCallback = Arc<dyn Fn(&ScanResult) + Send + Sync>;
+
 /// Generic security middleware that wraps any backend implementation
 ///
 /// This middleware intercepts email operations that expose message content
@@ -19,11 +22,12 @@ pub struct SecurityMiddleware<T> {
     /// The inner backend implementation being wrapped
     inner: Arc<T>,
     /// Security scanner (prompt injection + PII detection)
+    #[allow(dead_code)] // Used when email-lib traits are implemented
     scanner: Scanner,
     /// Security configuration
     config: SecurityConfig,
     /// Optional callback invoked after each scan
-    on_scan_complete: Option<Arc<dyn Fn(&ScanResult) + Send + Sync>>,
+    on_scan_complete: Option<ScanCallback>,
 }
 
 impl<T> SecurityMiddleware<T> {
@@ -60,6 +64,7 @@ impl<T> SecurityMiddleware<T> {
     }
 
     /// Scan and process a message body
+    #[allow(dead_code)] // Used when email-lib traits are implemented
     pub(crate) fn scan_and_process(
         &self,
         message_id: &str,
@@ -203,8 +208,10 @@ mod tests {
 
     #[test]
     fn test_allowlisted_sender_bypass() {
-        let mut config = SecurityConfig::default();
-        config.allowlisted_senders = vec!["trusted@example.com".to_string()];
+        let config = SecurityConfig {
+            allowlisted_senders: vec!["trusted@example.com".to_string()],
+            ..Default::default()
+        };
 
         let middleware = SecurityMiddleware::new("dummy_backend", config);
 

@@ -82,10 +82,16 @@ impl SecurityConfig {
     }
 
     /// Check if a sender is allowlisted
+    ///
+    /// Supports both exact match (sender == "user@example.com")
+    /// and domain match (sender ends with "@example.com" if allowlist has "example.com")
     pub fn is_sender_allowlisted(&self, sender: &str) -> bool {
-        self.allowlisted_senders
-            .iter()
-            .any(|allowed| sender.contains(allowed))
+        self.allowlisted_senders.iter().any(|allowed| {
+            // Exact match
+            sender == allowed ||
+            // Domain match: if allowed doesn't contain @, match as domain suffix
+            (!allowed.contains('@') && sender.ends_with(&format!("@{}", allowed)))
+        })
     }
 }
 
@@ -197,11 +203,16 @@ mod tests {
 
     #[test]
     fn test_allowlist_matching() {
-        let mut config = SecurityConfig::default();
-        config.allowlisted_senders = vec!["@trusted.com".to_string(), "noreply@github.com".to_string()];
+        let config = SecurityConfig {
+            allowlisted_senders: vec!["trusted.com".to_string(), "noreply@github.com".to_string()],
+            ..Default::default()
+        };
 
+        // Domain match
         assert!(config.is_sender_allowlisted("alice@trusted.com"));
+        // Exact match
         assert!(config.is_sender_allowlisted("noreply@github.com"));
+        // No match
         assert!(!config.is_sender_allowlisted("attacker@evil.com"));
     }
 }

@@ -1,7 +1,21 @@
 use aho_corasick::AhoCorasick;
-use regex::RegexSet;
+use regex::{Regex, RegexSet};
 
 use crate::report::{ContentLocation, Threat, ThreatType};
+
+// Configuration constants
+const DEFAULT_MIN_CONFIDENCE: f32 = 0.5;
+const BASE_KEYWORD_CONFIDENCE: f32 = 0.6;
+const SUSPICIOUS_KEYWORD_BOOST: f32 = 0.15;
+const EARLY_POSITION_BOOST: f32 = 0.1;
+const EARLY_POSITION_THRESHOLD: usize = 100;
+const CONTEXT_KEYWORD_BOOST: f32 = 0.05;
+const MULTIPLE_THREATS_BOOST: f32 = 0.15;
+const SHORT_LINES_BOOST: f32 = 0.05;
+const SHORT_LINES_THRESHOLD: usize = 30;
+const ROLE_MARKERS_BOOST: f32 = 0.2;
+const REGEX_PATTERN_CONFIDENCE: f32 = 0.75;
+const CONTEXT_SIZE: usize = 50;
 
 /// Detects prompt injection attempts in text content
 pub struct PromptInjectionDetector {
@@ -9,15 +23,17 @@ pub struct PromptInjectionDetector {
     keyword_matcher: AhoCorasick,
     /// Patterns this matcher detects (parallel to keyword_matcher)
     keywords: Vec<String>,
-    /// Regex patterns for structural injection attempts
+    /// Regex patterns for structural injection attempts (for fast matching)
     pattern_matcher: RegexSet,
+    /// Individual regexes (parallel to pattern_matcher, for finding match locations)
+    individual_patterns: Vec<Regex>,
     /// Minimum confidence threshold for reporting
     min_confidence: f32,
 }
 
 impl PromptInjectionDetector {
     pub fn new() -> Self {
-        Self::with_min_confidence(0.5)
+        Self::with_min_confidence(DEFAULT_MIN_CONFIDENCE)
     }
 
     pub fn with_min_confidence(min_confidence: f32) -> Self {
@@ -103,10 +119,17 @@ impl PromptInjectionDetector {
         let pattern_matcher = RegexSet::new(&patterns)
             .expect("Failed to build pattern matcher");
 
+        // Compile individual regexes for finding match locations
+        let individual_patterns: Vec<Regex> = patterns
+            .iter()
+            .map(|p| Regex::new(p).expect("Failed to compile regex pattern"))
+            .collect();
+
         Self {
             keyword_matcher,
             keywords: keywords.into_iter().map(String::from).collect(),
             pattern_matcher,
+            individual_patterns,
             min_confidence,
         }
     }
@@ -120,8 +143,8 @@ impl PromptInjectionDetector {
             let pattern_idx = mat.pattern().as_usize();
             let matched_text = &self.keywords[pattern_idx];
 
-            let context_start = mat.start().saturating_sub(50);
-            let context_end = (mat.end() + 50).min(text.len());
+            let context_start = mat.start().saturating_sub(CONTEXT_SIZE);
+            let context_end = (mat.end() + CONTEXT_SIZE).min(text.len());
 
             let confidence = self.calculate_keyword_confidence(matched_text, text, mat.start());
 
@@ -140,43 +163,52 @@ impl PromptInjectionDetector {
         if self.pattern_matcher.is_match(text) {
             let matches = self.pattern_matcher.matches(text);
             for pattern_idx in matches.iter() {
-                threats.push(Threat {
-                    threat_type: ThreatType::InstructionHijacking,
-                    pattern_matched: format!("structural_pattern_{}", pattern_idx),
-                    confidence: 0.75,
-                    context_snippet: self.extract_pattern_context(text, pattern_idx),
-                    location: ContentLocation::Body { offset: 0 },
-                });
+                // Run individual regex to find actual match location
+                if let Some(mat) = self.individual_patterns[pattern_idx].find(text) {
+                    let context_start = mat.start().saturating_sub(CONTEXT_SIZE);
+                    let context_end = (mat.end() + CONTEXT_SIZE).min(text.len());
+
+                    threats.push(Threat {
+                        threat_type: ThreatType::InstructionHijacking,
+                        pattern_matched: format!("structural_pattern_{}", pattern_idx),
+                        confidence: REGEX_PATTERN_CONFIDENCE,
+                        context_snippet: text[context_start..context_end].to_string(),
+                        location: ContentLocation::Body { offset: mat.start() },
+                    });
+                }
             }
         }
 
         // Phase 3: Heuristic scoring adjustments
         self.apply_heuristic_boosts(&mut threats, text);
 
+        // Phase 4: Deduplicate overlapping threats
+        self.deduplicate_threats(&mut threats);
+
         threats
     }
 
     /// Calculate confidence based on keyword and context
     fn calculate_keyword_confidence(&self, keyword: &str, text: &str, offset: usize) -> f32 {
-        let mut confidence: f32 = 0.6; // Base confidence for keyword match
+        let mut confidence = BASE_KEYWORD_CONFIDENCE;
 
         // Boost confidence for highly suspicious keywords
         if keyword.contains("ignore") || keyword.contains("override") || keyword.contains("system:") {
-            confidence += 0.15;
+            confidence += SUSPICIOUS_KEYWORD_BOOST;
         }
 
         // Boost if near start of message (more likely intentional)
-        if offset < 100 {
-            confidence += 0.1;
+        if offset < EARLY_POSITION_THRESHOLD {
+            confidence += EARLY_POSITION_BOOST;
         }
 
         // Check for surrounding context that indicates malicious intent
-        let context_start = offset.saturating_sub(50);
-        let context_end = (offset + keyword.len() + 50).min(text.len());
+        let context_start = offset.saturating_sub(CONTEXT_SIZE);
+        let context_end = (offset + keyword.len() + CONTEXT_SIZE).min(text.len());
         let context = &text[context_start..context_end];
 
         if context.contains("please") || context.contains("now") {
-            confidence += 0.05;
+            confidence += CONTEXT_KEYWORD_BOOST;
         }
 
         confidence.min(1.0_f32)
@@ -201,19 +233,12 @@ impl PromptInjectionDetector {
         }
     }
 
-    /// Extract context around a regex pattern match
-    fn extract_pattern_context(&self, text: &str, _pattern_idx: usize) -> String {
-        // For now, return first 100 chars
-        // In a real implementation, we'd re-run the specific regex to find the match location
-        text.chars().take(100).collect()
-    }
-
     /// Apply heuristic boosts when multiple indicators co-occur
     fn apply_heuristic_boosts(&self, threats: &mut [Threat], text: &str) {
         if threats.len() >= 2 {
             // Multiple threats detected - boost all confidences
             for threat in threats.iter_mut() {
-                threat.confidence = (threat.confidence + 0.15).min(1.0_f32);
+                threat.confidence = (threat.confidence + MULTIPLE_THREATS_BOOST).min(1.0_f32);
             }
         }
 
@@ -226,9 +251,9 @@ impl PromptInjectionDetector {
         };
 
         // Very short lines with commands may indicate injection attempt
-        if line_count > 3 && avg_line_length < 30 {
+        if line_count > 3 && avg_line_length < SHORT_LINES_THRESHOLD {
             for threat in threats.iter_mut() {
-                threat.confidence = (threat.confidence + 0.05).min(1.0_f32);
+                threat.confidence = (threat.confidence + SHORT_LINES_BOOST).min(1.0_f32);
             }
         }
 
@@ -241,10 +266,53 @@ impl PromptInjectionDetector {
         if role_count >= 2 {
             for threat in threats.iter_mut() {
                 if matches!(threat.threat_type, ThreatType::SystemPromptOverride | ThreatType::RoleManipulation) {
-                    threat.confidence = (threat.confidence + 0.2).min(1.0_f32);
+                    threat.confidence = (threat.confidence + ROLE_MARKERS_BOOST).min(1.0_f32);
                 }
             }
         }
+    }
+
+    /// Deduplicate threats that are close to each other in the text
+    ///
+    /// If two threats have offsets within 10 characters, keep only the higher confidence one
+    fn deduplicate_threats(&self, threats: &mut Vec<Threat>) {
+        if threats.len() <= 1 {
+            return;
+        }
+
+        // Sort by offset for efficient deduplication
+        threats.sort_by_key(|t| t.location.offset());
+
+        let mut deduped = Vec::new();
+        let mut i = 0;
+
+        while i < threats.len() {
+            let current = &threats[i];
+            let current_offset = current.location.offset();
+            let mut best_threat = current.clone();
+            let mut skip_count = 0;
+
+            // Check next threats for proximity
+            for next_threat in threats.iter().skip(i + 1) {
+                let next_offset = next_threat.location.offset();
+
+                // If within 10 characters, consider them duplicates
+                if next_offset.saturating_sub(current_offset) <= 10 {
+                    // Keep the one with higher confidence
+                    if next_threat.confidence > best_threat.confidence {
+                        best_threat = next_threat.clone();
+                    }
+                    skip_count += 1;
+                } else {
+                    break; // No more nearby threats
+                }
+            }
+
+            deduped.push(best_threat);
+            i += skip_count + 1;
+        }
+
+        *threats = deduped;
     }
 }
 

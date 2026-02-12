@@ -39,10 +39,14 @@ impl Scanner {
     }
 
     /// Check if a sender is on the allowlist
+    ///
+    /// Supports both exact match and domain suffix matching.
     pub fn is_allowlisted(&self, sender: &str) -> bool {
         self.config.allowlisted_senders.iter().any(|allowed| {
-            // Support both exact match and domain match
-            sender == allowed || sender.ends_with(&format!("@{}", allowed))
+            // Exact match
+            sender == allowed ||
+            // Domain match: if allowed doesn't contain @, match as domain suffix
+            (!allowed.contains('@') && sender.ends_with(&format!("@{}", allowed)))
         })
     }
 

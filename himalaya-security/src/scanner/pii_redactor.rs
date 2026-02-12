@@ -81,7 +81,7 @@ impl PiiRedactor {
                 ).unwrap(),
                 mask_fn: Box::new(|s| {
                     // Preserve the key name, redact the value
-                    if let Some(pos) = s.find(|c| c == ':' || c == '=') {
+                    if let Some(pos) = s.find([':', '=']) {
                         format!("{}[API_KEY_REDACTED]", &s[..=pos])
                     } else {
                         "[API_KEY_REDACTED]".to_string()
